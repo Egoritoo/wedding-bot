@@ -1,10 +1,5 @@
 """
 💍 СВАДЕБНЫЙ ТЕЛЕГРАМ-БОТ — Егор & Света
-==========================================
-Установка и запуск:
-1. pip install pyTelegramBotAPI
-2. Положите файл dresscode.jpg в ту же папку что и этот файл
-3. python wedding_bot.py
 """
 
 import telebot
@@ -63,10 +58,47 @@ def get_user(uid):
     return user_data[uid]
 
 
+def notify_admin(tg_user, data):
+    try:
+        drinks_str = ", ".join(data.get("drinks", [])) or "—"
+        text = (
+            f"🔔 *Новый ответ на свадьбу*\n\n"
+            f"👤 Telegram: @{tg_user.username or '—'} (ID: {tg_user.id})\n"
+            f"📝 Гость(и): {data.get('names', '—')}\n"
+            f"✅ Участие: {data.get('attendance', '—')}\n"
+            f"🥂 Напитки: {drinks_str}\n"
+            f"📍 Приедет: {data.get('ceremony', '—')}\n"
+        )
+        result = bot.send_message(ADMIN_CHAT_ID, text, parse_mode="Markdown")
+        print(f"✅ Уведомление отправлено админу, message_id: {result.message_id}")
+    except Exception as e:
+        print(f"❌ Ошибка отправки уведомления: {e}")
+        # Пробуем без Markdown
+        try:
+            drinks_str = ", ".join(data.get("drinks", [])) or "—"
+            text_plain = (
+                f"Новый ответ на свадьбу\n\n"
+                f"Гость: {data.get('names', '—')}\n"
+                f"Участие: {data.get('attendance', '—')}\n"
+                f"Напитки: {drinks_str}\n"
+                f"Приедет: {data.get('ceremony', '—')}\n"
+            )
+            bot.send_message(ADMIN_CHAT_ID, text_plain)
+            print("✅ Уведомление отправлено без Markdown")
+        except Exception as e2:
+            print(f"❌ Повторная ошибка: {e2}")
+
+
 @bot.message_handler(commands=["start"])
 def send_welcome(message):
     uid = message.from_user.id
     user_data[uid] = {"step": 1, "drinks": [], "attendance": "", "names": "", "ceremony": ""}
+    print(f"▶️ /start от пользователя {uid} (@{message.from_user.username})")
+
+    # Если это админ — отправляем тестовое уведомление
+    if uid == ADMIN_CHAT_ID:
+        bot.send_message(uid, "✅ Бот работает! Вы вошли как администратор. Уведомления будут приходить сюда.")
+
     w = WEDDING
     text = (
         "Привет, дорогой друг! 💛\n\n"
@@ -86,11 +118,25 @@ def send_welcome(message):
     bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=markup)
 
 
+@bot.message_handler(commands=["test"])
+def test_notify(message):
+    """Команда для проверки уведомлений"""
+    if message.from_user.id != ADMIN_CHAT_ID:
+        bot.send_message(message.chat.id, "❌ Нет доступа")
+        return
+    try:
+        bot.send_message(ADMIN_CHAT_ID, "🔔 Тестовое уведомление — всё работает!")
+        bot.send_message(message.chat.id, "✅ Уведомление отправлено себе!")
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ Ошибка: {e}")
+
+
 @bot.callback_query_handler(func=lambda c: c.data.startswith("attend_"))
 def handle_attendance(call):
     uid = call.from_user.id
     u = get_user(uid)
     bot.answer_callback_query(call.id)
+    print(f"📌 Выбор участия: {call.data} от {uid}")
 
     if call.data == "attend_no":
         u["attendance"] = "Не придёт"
@@ -116,12 +162,12 @@ def handle_name(message):
     u = get_user(uid)
     u["names"] = message.text.strip()
     u["step"] = 3
+    print(f"📝 Имя введено: {u['names']} от {uid}")
 
     markup = types.InlineKeyboardMarkup(row_width=2)
     buttons = [types.InlineKeyboardButton(d, callback_data=f"drink_{i}") for i, d in enumerate(DRINKS)]
     markup.add(*buttons)
     markup.add(types.InlineKeyboardButton("✅ Готово", callback_data="drinks_done"))
-
     bot.send_message(message.chat.id, "Пора выбрать напитки для отличного настроения 🥂✨\n\nОтметьте всё, что вам нравится (можно несколько):", parse_mode="Markdown", reply_markup=markup)
 
 
@@ -180,6 +226,7 @@ def handle_ceremony(call):
 
     u["ceremony"] = "ЗАГС + Банкет" if call.data == "ceremony_yes" else "Только банкет"
     u["step"] = 5
+    print(f"✅ Анкета завершена: {u['names']}, {u['ceremony']}")
 
     response = {
         "telegram_id": uid,
@@ -226,27 +273,11 @@ def handle_ceremony(call):
         bot.send_message(
             call.message.chat.id,
             "👗 *Дресс-код:*\n\n"
-            "Для нас самое главное — ваше присутствие! Но мы будем очень признательны, если вы поддержите цветовую гамму нашей свадьбы.\n\n"
+            "Для нас самое главное — ваше присутствие!\n\n"
             "👔 *Мужчины:* белый верх (поло, футболка, рубашка), чёрный низ (брюки)\n"
             "👗 *Женщины:* пастельные тона — зелёный, голубой, сиреневый, розовый, жёлтый, персиковый",
             parse_mode="Markdown",
         )
-
-
-def notify_admin(tg_user, data):
-    try:
-        drinks_str = ", ".join(data.get("drinks", [])) or "—"
-        text = (
-            f"🔔 *Новый ответ на свадьбу*\n\n"
-            f"👤 Telegram: @{tg_user.username or '—'} (ID: {tg_user.id})\n"
-            f"📝 Гость(и): {data.get('names', '—')}\n"
-            f"✅ Участие: {data.get('attendance', '—')}\n"
-            f"🥂 Напитки: {drinks_str}\n"
-            f"📍 Приедет: {data.get('ceremony', '—')}\n"
-        )
-        bot.send_message(ADMIN_CHAT_ID, text, parse_mode="Markdown")
-    except Exception as e:
-        print(f"Ошибка уведомления: {e}")
 
 
 @bot.message_handler(commands=["spisok"])
